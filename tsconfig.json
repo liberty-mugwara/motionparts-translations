@@ -17,7 +17,7 @@
     "isolatedModules": true,
     "baseUrl": ".",
     "noFallthroughCasesInSwitch": true,
-    "outDir": "./www"
+    "outDir": "./dist"
   },
   "compileOnSave": true,
   "include": ["src"],
