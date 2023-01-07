@@ -171,6 +171,16 @@ export async function prepareCSVs(fileNames: string[]): Promise<string[]> {
     langDataExtras.gzips[namespace].write(csvHeadings),
   );
 
+  const leftOversWriteStream = createWriteStream(
+    './tmp/lang-data-left-overs.csv.gz',
+  );
+  createdFiles.push('./tmp/lang-data-left-overs.csv.gz');
+  const leftOversGzip = createGzip();
+  const leftOversSet = new Set<string>();
+
+  leftOversGzip.pipe(leftOversWriteStream);
+  leftOversGzip.write(csvHeadings);
+
   for (const fileName of fileNames) {
     const readStream = createReadStream(`tmp/${fileName}`);
 
@@ -185,6 +195,7 @@ export async function prepareCSVs(fileNames: string[]): Promise<string[]> {
 
       if (!defaultContent) return;
 
+      let matchFound = false;
       for (const namespace of langData.namespaces) {
         const filter = langData.filters.defaultContent[namespace];
 
@@ -201,15 +212,28 @@ export async function prepareCSVs(fileNames: string[]): Promise<string[]> {
               continue;
           }
 
+          matchFound = true;
           langDataExtras.gzips[namespace].write('\r\n' + line);
           if (isHtml(defaultContent)) {
             const textList = getHtmlText(defaultContent);
             textList.forEach((txt) =>
               langDataExtras.uniqueDataSets[namespace].add(txt),
             );
-          } else if (!mustBeOmitted(defaultContent)) {
-            langDataExtras.uniqueDataSets[namespace].add(defaultContent);
+          } else {
+            getSentences(defaultContent).forEach((v) =>
+              langDataExtras.uniqueDataSets[namespace].add(v),
+            );
           }
+        }
+      }
+
+      if (!matchFound) {
+        leftOversGzip.write('\r\n' + line);
+        if (isHtml(defaultContent)) {
+          const textList = getHtmlText(defaultContent);
+          textList.forEach((txt) => leftOversSet.add(txt));
+        } else {
+          getSentences(defaultContent).forEach((v) => leftOversSet.add(v));
         }
       }
     });
@@ -217,6 +241,12 @@ export async function prepareCSVs(fileNames: string[]): Promise<string[]> {
     await finished(readStream);
   }
 
+  leftOversGzip.end();
+  writeFileSync(
+    'lang-data-left-overs.json',
+    JSON.stringify([...leftOversSet, null, 2]),
+  );
+  createdFiles.push('lang-data-left-overs.json');
   langData.namespaces.forEach((namespace) => {
     langDataExtras.gzips[namespace].end();
     const fileName = `__${namespace}-unique.json`;
@@ -247,8 +277,8 @@ function getHtmlText(html: string) {
   }
 
   function extractText(object: IJsonNode) {
-    if (object?.node === 'text' && !mustBeOmitted(object.text)) {
-      textList.push(object.text);
+    if (object?.node === 'text') {
+      textList.push(...getSentences(object.text));
     }
 
     if (!object?.child) {
@@ -274,9 +304,12 @@ function isProductCode(text: string) {
   const fistTwoChars = text.slice(0, 2);
   if (fistTwoChars.toUpperCase() === fistTwoChars) return true;
 
-  // first word has no stand alone numbers
-  const firstWord = text.split(' ')[0];
-  if (!firstWord.split('').every((v) => v.match(/[a-z]/i))) {
+  if (
+    !text
+      .split(' ')[0]
+      .split('')
+      .every((v) => v.match(/[a-z]/i))
+  ) {
     return true;
   }
 
@@ -291,4 +324,37 @@ function filterMatches(filter: string, text: string) {
   return filter
     .split('&')
     .every((f: string) => f.split('|').some((f2) => text.includes(f2)));
+}
+
+function splitAlgorithm2(text: string) {
+  return text.split('✓');
+}
+
+function splitAlgorithm1(text: string) {
+  if (!mustBeOmitted(text)) {
+    return text;
+  }
+  const words = text.split(' ');
+  const selectedWords: string[] = [];
+  let select = false;
+  for (const word in words) {
+    if (select) {
+      selectedWords.push(word);
+      continue;
+    }
+    if (mustBeOmitted(word)) continue;
+    else {
+      selectedWords.push(word);
+      select = true;
+    }
+  }
+  return selectedWords.join(' ');
+}
+
+function getSentences(text: string) {
+  const algo1Text = splitAlgorithm1(text);
+  if (algo1Text) {
+    return splitAlgorithm2(algo1Text);
+  }
+  return [];
 }
