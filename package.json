@@ -30,6 +30,7 @@
   "author": "Liberty Mugwara",
   "license": "ISC",
   "dependencies": {
+    "html2json": "^1.0.2",
     "mugstech-s3": "^1.3.1",
     "node-stream-zip": "^1.15.0"
   },
